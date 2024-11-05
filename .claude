@@ -1,0 +1,54 @@
+# SMUX Project Context
+
+## Project Overview
+SMUX is a workspace multiplexer for macOS, designed to solve context-switching challenges for developers working across multiple projects. Similar to tmux for terminal sessions, SMUX manages entire desktop environments including:
+- Window positions and states
+- Application contexts (VSCode, browsers, terminals)
+- Project-specific configurations
+
+## Architecture
+- CLI Interface (Swift + ArgumentParser)
+- Daemon Service (macOS LaunchAgent)
+- State Management System
+- Application Plugins
+
+## Current Implementation State
+- Basic CLI scaffold using Swift ArgumentParser
+- Commands: create, switch, list, config, snapshot
+- Pending: daemon communication, state persistence, window management
+
+## Key Technical Decisions
+- Swift for both CLI and daemon
+- XPC for CLI-daemon communication
+- SQLite for state persistence
+- Apple Events/Accessibility APIs for window management
+
+## Next Steps
+1. [ ] Implement workspace configuration storage
+2. [ ] Design XPC protocol for daemon communication
+3. [ ] Create basic window management functionality
+4. [ ] Develop plugin system for application integration
+
+## Development Environment
+- macOS 13+
+- Swift 5.9+
+- Dependencies: swift-argument-parser
+
+## Key Files
+```
+smux/
+├── Package.swift
+├── Sources/
+│   └── smux/
+│       ├── main.swift          # CLI implementation
+│       ├── Config.swift        # (Pending) Configuration types
+│       ├── Daemon.swift        # (Pending) Daemon communication
+│       └── WindowManager.swift # (Pending) Window management
+└── Tests/
+    └── smuxTests/
+```
+
+## Reference Documentation
+- [Swift ArgumentParser Guide](https://github.com/apple/swift-argument-parser)
+- [macOS Launch Agent Documentation](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingLaunchdJobs.html)
+- [Apple Events Programming Guide](https://developer.apple.com/library/archive/documentation/AppleScript/Conceptual/AppleEvents/Introduction/Introduction.html)
