@@ -1,0 +1,19 @@
+{
+  "karbon": {
+    "command": "node",
+    "args": ["/Users/sqadri/client-work/karbon/karbon-mcp-server/dist/index.js"],
+    "env": {
+      "KARBON_BEARER_TOKEN": "sample-token-123",
+      "KARBON_ACCESS_KEY": "sample-access-key-456"
+    }
+  },
+  "linear-mcp": {
+    "command": "node",
+    "args": ["/Users/sqadri/code/linear-mcp/build/index.js"],
+    "env": {
+      "LINEAR_API_KEY": "sample-linear-api-key-789"
+    },
+    "disabled": false,
+    "alwaysAllow": ["list_teams", "list_issues"]
+  }
+}
