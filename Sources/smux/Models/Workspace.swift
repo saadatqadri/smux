@@ -3,7 +3,7 @@ import Foundation
 
 struct Workspace: Codable, Identifiable {
     var id: String { name }
-    let name: String
+    var name: String
     var applications: [ApplicationConfig]
     var browserUrls: [String]
     var terminalDirectories: [String]

@@ -43,6 +43,74 @@ class WorkspaceManager {
         }
     }
     
+    /// Create a new workspace with the given configuration
+    /// - Parameters:
+    ///   - name: Name of the workspace
+    ///   - vscodeWorkspace: Optional path to VSCode workspace file
+    ///   - browserUrls: Optional list of browser URLs to open
+    ///   - terminalDirectories: Optional list of terminal directories to open
+    ///   - applications: Optional list of applications to open
+    /// - Returns: The created workspace if successful, nil otherwise
+    func createWorkspace(
+        name: String,
+        vscodeWorkspace: String? = nil,
+        browserUrls: [String] = [],
+        terminalDirectories: [String] = [],
+        applications: [Workspace.ApplicationConfig] = []
+    ) -> Workspace? {
+        // Check if workspace already exists
+        if Workspace.exists(name: name) {
+            print("Workspace '\(name)' already exists")
+            return nil
+        }
+
+        // Create new workspace
+        let workspace = Workspace(
+            name: name,
+            applications: applications,
+            browserUrls: browserUrls,
+            terminalDirectories: terminalDirectories,
+            vscodeWorkspace: vscodeWorkspace
+        )
+        
+        // Save workspace
+        if saveWorkspace(workspace) {
+            return workspace
+        } else {
+            return nil
+        }
+    }
+    
+    /// Create a workspace from a template
+    /// - Parameters:
+    ///   - name: Name of the new workspace
+    ///   - templateName: Name of the template workspace to use
+    /// - Returns: The created workspace if successful, nil otherwise
+    func createWorkspaceFromTemplate(name: String, templateName: String) -> Workspace? {
+        // Check if workspace already exists
+        if Workspace.exists(name: name) {
+            print("Workspace '\(name)' already exists")
+            return nil
+        }
+
+        // Check if template exists
+        guard let template = getWorkspace(name: templateName) else {
+            print("Template workspace '\(templateName)' not found")
+            return nil
+        }
+        
+        // Create new workspace from template
+        var workspace = template
+        workspace.name = name
+
+        // Save workspace
+        if saveWorkspace(workspace) {
+            return workspace
+        } else {
+            return nil
+        }
+    }
+    
     /// Switch to a workspace
     /// - Parameters:
     ///   - name: Name of the workspace to switch to
@@ -95,7 +163,7 @@ class WorkspaceManager {
         print("Opening application: \(app.name)")
         
         // Create AppleScript to launch the application
-        var script = "tell application \"\(app.name)\" to activate"
+        let script = "tell application \"\(app.name)\" to activate"
         
         // Add window positioning if available
         if let windowPositions = app.windowPositions, !windowPositions.isEmpty {
@@ -138,7 +206,16 @@ class WorkspaceManager {
         print("Opening terminal directories: \(directories)")
         
         for directory in directories {
-            let script = "tell application \"Terminal\" to do script \"cd \(directory)\""
+            // Expand tilde to home directory if present
+            let expandedPath: String
+            if directory.hasPrefix("~") {
+                let pathWithoutTilde = String(directory.dropFirst())
+                expandedPath = FileManager.default.homeDirectoryForCurrentUser.path + pathWithoutTilde
+            } else {
+                expandedPath = directory
+            }
+            
+            let script = "tell application \"Terminal\" to do script \"cd \(expandedPath)\""
             
             let process = Process()
             process.launchPath = "/usr/bin/osascript"
@@ -147,7 +224,7 @@ class WorkspaceManager {
             do {
                 try process.run()
             } catch {
-                print("Error opening terminal at \(directory): \(error.localizedDescription)")
+                print("Error opening terminal at \(expandedPath): \(error.localizedDescription)")
             }
         }
     }
@@ -157,14 +234,23 @@ class WorkspaceManager {
     private func openVSCodeWorkspace(_ workspacePath: String) {
         print("Opening VS Code workspace: \(workspacePath)")
         
+        // Expand tilde to home directory if present
+        let expandedPath: String
+        if workspacePath.hasPrefix("~") {
+            let pathWithoutTilde = String(workspacePath.dropFirst())
+            expandedPath = FileManager.default.homeDirectoryForCurrentUser.path + pathWithoutTilde
+        } else {
+            expandedPath = workspacePath
+        }
+        
         let process = Process()
         process.launchPath = "/usr/bin/open"
-        process.arguments = ["-a", "Visual Studio Code", workspacePath]
+        process.arguments = ["-a", "Visual Studio Code", expandedPath]
         
         do {
             try process.run()
         } catch {
-            print("Error opening VS Code workspace \(workspacePath): \(error.localizedDescription)")
+            print("Error opening VS Code workspace \(expandedPath): \(error.localizedDescription)")
         }
     }
 }
