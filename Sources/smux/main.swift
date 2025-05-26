@@ -146,7 +146,7 @@ extension Smux {
             if let appsInput = appsInput, !appsInput.isEmpty {
                 applications = appsInput.split(separator: ",")
                     .map { String($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
-                    .map { Workspace.ApplicationConfig(name: $0, bundleIdentifier: "", windowPositions: nil) }
+                    .map { Workspace.ApplicationConfig(name: $0, bundleIdentifier: "", windowPositions: nil, safariProfile: nil) }
             }
 
             // MCP server configurations

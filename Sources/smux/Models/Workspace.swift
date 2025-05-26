@@ -14,6 +14,7 @@ struct Workspace: Codable, Identifiable {
         let name: String
         let bundleIdentifier: String
         let windowPositions: [WindowPosition]?
+        let safariProfile: String?
         
         struct WindowPosition: Codable {
             let x: Int
