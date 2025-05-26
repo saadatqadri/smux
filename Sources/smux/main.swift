@@ -27,9 +27,142 @@ extension Smux {
         @Argument(help: "Name of the workspace to create")
         var name: String
 
+        @Option(name: .long, help: "Use an existing workspace as a template")
+        var template: String?
+
+        @Option(name: .long, help: "VSCode workspace file path")
+        var vscodeWorkspace: String?
+
+        @Option(name: .long, help: "Comma-separated list of URLs to open")
+        var browserUrls: String?
+
+        @Option(name: .long, help: "Comma-separated list of terminal working directories")
+        var terminalDirs: String?
+
+        @Flag(name: .shortAndLong, help: "Enable interactive mode for configuration")
+        var interactive: Bool = false
+
+        @Flag(name: .shortAndLong, help: "Skip confirmation prompt")
+        var force: Bool = false
+
         func run() throws {
-            print("Creating workspace: \(name)")
-            // TODO: Implement workspace creation
+            let manager = WorkspaceManager.shared
+
+            // Check if workspace already exists
+            if manager.getWorkspace(name: name) != nil && !force {
+                print("Workspace '\(name)' already exists. Use --force to overwrite.")
+                throw ExitCode.failure
+            }
+
+            // Interactive mode
+            if interactive {
+                return try runInteractiveMode(manager: manager)
+            }
+
+            // Template-based creation
+            if let templateName = template {
+                print("Creating workspace '\(name)' from template '\(templateName)'...")
+                guard let workspace = manager.createWorkspaceFromTemplate(name: name, templateName: templateName) else {
+                    print("Failed to create workspace from template.")
+                    throw ExitCode.failure
+                }
+
+                print("Successfully created workspace '\(name)' from template '\(templateName)'")
+                printWorkspaceSummary(workspace)
+                return
+            }
+            
+            // Normal creation with command-line options
+            let urls = browserUrls?.split(separator: ",").map(String.init) ?? []
+            let dirs = terminalDirs?.split(separator: ",").map(String.init) ?? []
+
+            guard let workspace = manager.createWorkspace(
+                name: name,
+                vscodeWorkspace: vscodeWorkspace,
+                browserUrls: urls,
+                terminalDirectories: dirs
+            ) else {
+                print("Failed to create workspace.")
+                throw ExitCode.failure
+            }
+
+            print("Successfully created workspace '\(name)'")
+            printWorkspaceSummary(workspace)
+        }
+        
+        private func runInteractiveMode(manager: WorkspaceManager) throws -> Void {
+            print("Creating workspace '\(name)' in interactive mode...")
+            print("Press Enter to skip any option.")
+
+            // VSCode workspace
+            print("\nVSCode workspace file path:")
+            let vscodeInput = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let vscode = vscodeInput?.isEmpty == false ? vscodeInput : nil
+
+            // Browser URLs
+            print("\nBrowser URLs (comma-separated):")
+            let urlsInput = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let urls = urlsInput?.isEmpty == false ?
+                urlsInput!.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespacesAndNewlines)) } :
+                []
+
+            // Terminal directories
+            print("\nTerminal directories (comma-separated):")
+            let dirsInput = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let dirs = dirsInput?.isEmpty == false ?
+                dirsInput!.split(separator: ",").map { String($0.trimmingCharacters(in: .whitespacesAndNewlines)) } :
+                []
+
+            // Applications (basic support for now)
+            print("\nApplications to include (comma-separated, e.g., 'Safari,Mail'):")
+            let appsInput = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            var applications: [Workspace.ApplicationConfig] = []
+            if let appsInput = appsInput, !appsInput.isEmpty {
+                applications = appsInput.split(separator: ",")
+                    .map { String($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+                    .map { Workspace.ApplicationConfig(name: $0, bundleIdentifier: "", windowPositions: nil) }
+            }
+
+            // Create the workspace
+            guard let workspace = manager.createWorkspace(
+                name: name,
+                vscodeWorkspace: vscode,
+                browserUrls: urls,
+                terminalDirectories: dirs,
+                applications: applications
+            ) else {
+                print("Failed to create workspace.")
+                throw ExitCode.failure
+            }
+
+            print("\nSuccessfully created workspace '\(name)'")
+            printWorkspaceSummary(workspace)
+            return
+        }
+        
+        private func printWorkspaceSummary(_ workspace: Workspace) {
+            print("\nWorkspace Configuration:")
+            print("  Name: \(workspace.name)")
+
+            if let vscode = workspace.vscodeWorkspace {
+                print("  VSCode Workspace: \(vscode)")
+            }
+
+            if !workspace.browserUrls.isEmpty {
+                print("  Browser URLs:")
+                workspace.browserUrls.forEach { print("    - \($0)") }
+            }
+
+            if !workspace.terminalDirectories.isEmpty {
+                print("  Terminal Directories:")
+                workspace.terminalDirectories.forEach { print("    - \($0)") }
+            }
+
+            if !workspace.applications.isEmpty {
+                print("  Applications:")
+                workspace.applications.forEach { print("    - \($0.name)") }
+            }
         }
     }
 
