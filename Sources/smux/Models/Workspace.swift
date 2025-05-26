@@ -8,6 +8,7 @@ struct Workspace: Codable, Identifiable {
     var browserUrls: [String]
     var terminalDirectories: [String]
     var vscodeWorkspace: String?
+    var mcpServers: [String: MCPServerConfig]?
     
     struct ApplicationConfig: Codable {
         let name: String
@@ -20,6 +21,14 @@ struct Workspace: Codable, Identifiable {
             let width: Int
             let height: Int
         }
+    }
+    
+    struct MCPServerConfig: Codable {
+        var command: String
+        var args: [String]
+        var env: [String: String]?
+        var disabled: Bool?
+        var alwaysAllow: [String]?
     }
 }
 

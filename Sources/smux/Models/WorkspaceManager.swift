@@ -56,7 +56,8 @@ class WorkspaceManager {
         vscodeWorkspace: String? = nil,
         browserUrls: [String] = [],
         terminalDirectories: [String] = [],
-        applications: [Workspace.ApplicationConfig] = []
+        applications: [Workspace.ApplicationConfig] = [],
+        mcpServers: [String: Workspace.MCPServerConfig]? = nil
     ) -> Workspace? {
         // Check if workspace already exists
         if Workspace.exists(name: name) {
@@ -70,7 +71,8 @@ class WorkspaceManager {
             applications: applications,
             browserUrls: browserUrls,
             terminalDirectories: terminalDirectories,
-            vscodeWorkspace: vscodeWorkspace
+            vscodeWorkspace: vscodeWorkspace,
+            mcpServers: mcpServers
         )
         
         // Save workspace
@@ -152,6 +154,19 @@ class WorkspaceManager {
         // Open VS Code workspace if configured
         if let vscodeWorkspace = workspace.vscodeWorkspace {
             openVSCodeWorkspace(vscodeWorkspace)
+        }
+        
+        // Configure MCP servers if specified
+        var appsToRestart: [String] = []
+        if let mcpServers = workspace.mcpServers, !mcpServers.isEmpty {
+            if configureMCPServers(mcpServers) {
+                appsToRestart.append(contentsOf: ["Claude", "Windsurf"])
+            }
+        }
+        
+        // Prompt to restart applications if needed
+        if !appsToRestart.isEmpty {
+            promptToRestartApplications(appsToRestart)
         }
         
         return true
@@ -251,6 +266,160 @@ class WorkspaceManager {
             try process.run()
         } catch {
             print("Error opening VS Code workspace \(expandedPath): \(error.localizedDescription)")
+        }
+    }
+    
+    // MARK: - MCP Server Configuration
+    
+    /// Configure MCP servers for various applications
+    /// - Parameter mcpServers: Dictionary of MCP server configurations
+    /// - Returns: Boolean indicating if any configurations were updated
+    private func configureMCPServers(_ mcpServers: [String: Workspace.MCPServerConfig]) -> Bool {
+        print("Configuring MCP servers...")
+        
+        var configUpdated = false
+        
+        // Configure Claude Desktop
+        if configureClaudeMCPServers(mcpServers) {
+            configUpdated = true
+        }
+        
+        // Configure Windsurf (placeholder for future implementation)
+        // if configureWindsurfMCPServers(mcpServers) {
+        //     configUpdated = true
+        // }
+        
+        return configUpdated
+    }
+    
+    /// Configure MCP servers for Claude Desktop
+    /// - Parameter mcpServers: Dictionary of MCP server configurations
+    /// - Returns: Boolean indicating if configuration was updated
+    private func configureClaudeMCPServers(_ mcpServers: [String: Workspace.MCPServerConfig]) -> Bool {
+        let fileManager = FileManager.default
+        let homeDirectory = fileManager.homeDirectoryForCurrentUser
+        let claudeConfigDir = homeDirectory.appendingPathComponent("Library/Application Support/Claude")
+        let configFile = claudeConfigDir.appendingPathComponent("claude_desktop_config.json")
+        
+        // Check if Claude config directory exists
+        if !fileManager.fileExists(atPath: claudeConfigDir.path) {
+            print("Claude configuration directory not found. Claude Desktop may not be installed.")
+            return false
+        }
+        
+        // Create backup of existing config
+        let backupFile = claudeConfigDir.appendingPathComponent("claude_desktop_config.backup.json")
+        do {
+            if fileManager.fileExists(atPath: configFile.path) {
+                let configData = try Data(contentsOf: configFile)
+                try configData.write(to: backupFile)
+                print("Created backup of Claude Desktop configuration")
+            }
+        } catch {
+            print("Error creating backup of Claude Desktop configuration: \(error.localizedDescription)")
+            return false
+        }
+        
+        // Read existing config or create new one
+        var config: [String: Any] = [:]
+        if fileManager.fileExists(atPath: configFile.path) {
+            do {
+                let data = try Data(contentsOf: configFile)
+                if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                    config = json
+                }
+            } catch {
+                print("Error reading Claude Desktop configuration: \(error.localizedDescription)")
+                return false
+            }
+        }
+        
+        // Update MCP servers configuration
+        var mcpServersDict: [String: Any] = [:]
+        for (name, serverConfig) in mcpServers {
+            var serverDict: [String: Any] = [
+                "command": serverConfig.command,
+                "args": serverConfig.args
+            ]
+            
+            if let env = serverConfig.env {
+                serverDict["env"] = env
+            }
+            
+            if let disabled = serverConfig.disabled {
+                serverDict["disabled"] = disabled
+            }
+            
+            if let alwaysAllow = serverConfig.alwaysAllow {
+                serverDict["alwaysAllow"] = alwaysAllow
+            }
+            
+            mcpServersDict[name] = serverDict
+        }
+        
+        config["mcpServers"] = mcpServersDict
+        
+        // Write updated config
+        do {
+            let jsonData = try JSONSerialization.data(withJSONObject: config, options: .prettyPrinted)
+            try jsonData.write(to: configFile)
+            print("Updated Claude Desktop MCP server configuration")
+            return true
+        } catch {
+            print("Error writing Claude Desktop configuration: \(error.localizedDescription)")
+            return false
+        }
+    }
+    
+    /// Prompt user to restart applications after configuration changes
+    /// - Parameter appNames: Array of application names to restart
+    private func promptToRestartApplications(_ appNames: [String]) {
+        print("\nMCP server configurations have been updated.")
+        print("The following applications need to be restarted to apply the changes:")
+        for appName in appNames {
+            print("  - \(appName)")
+        }
+        
+        print("\nWould you like to restart these applications now? (y/N)")
+        let response = readLine()?.lowercased() ?? ""
+        
+        if response == "y" || response == "yes" {
+            for appName in appNames {
+                restartApplication(appName)
+            }
+        } else {
+            print("Please restart the applications manually to apply the MCP server configurations.")
+        }
+    }
+    
+    /// Restart an application
+    /// - Parameter appName: Name of the application to restart
+    private func restartApplication(_ appName: String) {
+        print("Restarting \(appName)...")
+        
+        // First quit the application
+        let quitScript = "tell application \"\(appName)\" to quit"
+        let quitProcess = Process()
+        quitProcess.launchPath = "/usr/bin/osascript"
+        quitProcess.arguments = ["-e", quitScript]
+        
+        do {
+            try quitProcess.run()
+            quitProcess.waitUntilExit()
+            
+            // Wait a moment before restarting
+            Thread.sleep(forTimeInterval: 1.0)
+            
+            // Then launch the application again
+            let launchScript = "tell application \"\(appName)\" to activate"
+            let launchProcess = Process()
+            launchProcess.launchPath = "/usr/bin/osascript"
+            launchProcess.arguments = ["-e", launchScript]
+            
+            try launchProcess.run()
+            print("\(appName) has been restarted")
+        } catch {
+            print("Error restarting \(appName): \(error.localizedDescription)")
         }
     }
 }

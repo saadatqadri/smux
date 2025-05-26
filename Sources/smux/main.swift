@@ -38,6 +38,9 @@ extension Smux {
 
         @Option(name: .long, help: "Comma-separated list of terminal working directories")
         var terminalDirs: String?
+        
+        @Option(name: .long, help: "JSON file containing MCP server configurations")
+        var mcpConfig: String?
 
         @Flag(name: .shortAndLong, help: "Enable interactive mode for configuration")
         var interactive: Bool = false
@@ -75,12 +78,20 @@ extension Smux {
             // Normal creation with command-line options
             let urls = browserUrls?.split(separator: ",").map(String.init) ?? []
             let dirs = terminalDirs?.split(separator: ",").map(String.init) ?? []
+            
+            // Parse MCP server configurations if provided
+            var mcpServers: [String: Workspace.MCPServerConfig]? = nil
+            if let mcpConfigPath = mcpConfig {
+                mcpServers = loadMCPConfigFromFile(mcpConfigPath)
+            }
 
             guard let workspace = manager.createWorkspace(
                 name: name,
                 vscodeWorkspace: vscodeWorkspace,
                 browserUrls: urls,
-                terminalDirectories: dirs
+                terminalDirectories: dirs,
+                applications: [],
+                mcpServers: mcpServers
             ) else {
                 print("Failed to create workspace.")
                 throw ExitCode.failure
@@ -93,6 +104,20 @@ extension Smux {
         private func runInteractiveMode(manager: WorkspaceManager) throws -> Void {
             print("Creating workspace '\(name)' in interactive mode...")
             print("Press Enter to skip any option.")
+            
+            // Helper function to parse JSON input
+            func parseJSONInput(_ input: String) -> [String: Any]? {
+                guard !input.isEmpty else { return nil }
+                guard let data = input.data(using: .utf8) else { return nil }
+                do {
+                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                        return json
+                    }
+                } catch {
+                    print("Error parsing JSON: \(error.localizedDescription)")
+                }
+                return nil
+            }
 
             // VSCode workspace
             print("\nVSCode workspace file path:")
@@ -124,13 +149,47 @@ extension Smux {
                     .map { Workspace.ApplicationConfig(name: $0, bundleIdentifier: "", windowPositions: nil) }
             }
 
+            // MCP server configurations
+            print("\nMCP server configurations (JSON format, e.g., '{\"karbon\":{\"command\":\"node\",\"args\":[\"/path/to/server.js\"]}}'): ")
+            let mcpInput = readLine()?.trimmingCharacters(in: .whitespacesAndNewlines)
+            
+            var mcpServers: [String: Workspace.MCPServerConfig]? = nil
+            if let mcpInput = mcpInput, !mcpInput.isEmpty {
+                if let mcpJson = parseJSONInput(mcpInput) as? [String: [String: Any]] {
+                    mcpServers = [:]  
+                    for (serverName, serverConfig) in mcpJson {
+                        if let command = serverConfig["command"] as? String,
+                           let args = serverConfig["args"] as? [String] {
+                            var config = Workspace.MCPServerConfig(command: command, args: args)
+                            
+                            if let env = serverConfig["env"] as? [String: String] {
+                                config.env = env
+                            }
+                            
+                            if let disabled = serverConfig["disabled"] as? Bool {
+                                config.disabled = disabled
+                            }
+                            
+                            if let alwaysAllow = serverConfig["alwaysAllow"] as? [String] {
+                                config.alwaysAllow = alwaysAllow
+                            }
+                            
+                            mcpServers?[serverName] = config
+                        }
+                    }
+                } else {
+                    print("Invalid MCP server configuration format. Skipping.")
+                }
+            }
+            
             // Create the workspace
             guard let workspace = manager.createWorkspace(
                 name: name,
                 vscodeWorkspace: vscode,
                 browserUrls: urls,
                 terminalDirectories: dirs,
-                applications: applications
+                applications: applications,
+                mcpServers: mcpServers
             ) else {
                 print("Failed to create workspace.")
                 throw ExitCode.failure
@@ -162,6 +221,11 @@ extension Smux {
             if !workspace.applications.isEmpty {
                 print("  Applications:")
                 workspace.applications.forEach { print("    - \($0.name)") }
+            }
+            
+            if let mcpServers = workspace.mcpServers, !mcpServers.isEmpty {
+                print("  MCP Servers:")
+                mcpServers.keys.forEach { print("    - \($0)") }
             }
         }
     }
@@ -262,10 +326,59 @@ extension Smux {
 
         @Option(name: .long, help: "Comma-separated list of terminal working directories")
         var terminalDirs: String?
+        
+        @Option(name: .long, help: "JSON file containing MCP server configurations")
+        var mcpConfig: String?
 
         func run() throws {
             print("Configuring workspace: \(name)")
-            // TODO: Save configuration
+            
+            let manager = WorkspaceManager.shared
+            guard var workspace = manager.getWorkspace(name: name) else {
+                print("Workspace '\(name)' not found.")
+                throw ExitCode.failure
+            }
+            
+            var updated = false
+            
+            // Update VSCode workspace if provided
+            if let vscodeWorkspace = vscodeWorkspace {
+                workspace.vscodeWorkspace = vscodeWorkspace
+                updated = true
+            }
+            
+            // Update browser URLs if provided
+            if let browserUrls = browserUrls {
+                let urls = browserUrls.split(separator: ",").map(String.init)
+                workspace.browserUrls = urls
+                updated = true
+            }
+            
+            // Update terminal directories if provided
+            if let terminalDirs = terminalDirs {
+                let dirs = terminalDirs.split(separator: ",").map(String.init)
+                workspace.terminalDirectories = dirs
+                updated = true
+            }
+            
+            // Update MCP server configurations if provided
+            if let mcpConfigPath = mcpConfig {
+                if let mcpServers = loadMCPConfigFromFile(mcpConfigPath) {
+                    workspace.mcpServers = mcpServers
+                    updated = true
+                }
+            }
+            
+            if updated {
+                if manager.saveWorkspace(workspace) {
+                    print("Successfully updated workspace '\(name)'")
+                } else {
+                    print("Failed to save workspace configuration.")
+                    throw ExitCode.failure
+                }
+            } else {
+                print("No changes to save.")
+            }
         }
     }
 
@@ -281,6 +394,61 @@ extension Smux {
             print("Saving snapshot for workspace: \(name)")
             // TODO: Capture current window state
         }
+    }
+}
+
+// MARK: - Helper Functions
+
+/// Load MCP server configurations from a JSON file
+/// - Parameter path: Path to the JSON file
+/// - Returns: Dictionary of MCP server configurations, or nil if loading failed
+func loadMCPConfigFromFile(_ path: String) -> [String: Workspace.MCPServerConfig]? {
+    let expandedPath: String
+    if path.hasPrefix("~") {
+        let pathWithoutTilde = String(path.dropFirst())
+        expandedPath = FileManager.default.homeDirectoryForCurrentUser.path + pathWithoutTilde
+    } else {
+        expandedPath = path
+    }
+    
+    guard FileManager.default.fileExists(atPath: expandedPath) else {
+        print("MCP configuration file not found: \(expandedPath)")
+        return nil
+    }
+    
+    do {
+        let data = try Data(contentsOf: URL(fileURLWithPath: expandedPath))
+        let json = try JSONSerialization.jsonObject(with: data) as? [String: [String: Any]]
+        
+        var mcpServers: [String: Workspace.MCPServerConfig] = [:]
+        
+        if let json = json {
+            for (serverName, serverConfig) in json {
+                if let command = serverConfig["command"] as? String,
+                   let args = serverConfig["args"] as? [String] {
+                    var config = Workspace.MCPServerConfig(command: command, args: args)
+                    
+                    if let env = serverConfig["env"] as? [String: String] {
+                        config.env = env
+                    }
+                    
+                    if let disabled = serverConfig["disabled"] as? Bool {
+                        config.disabled = disabled
+                    }
+                    
+                    if let alwaysAllow = serverConfig["alwaysAllow"] as? [String] {
+                        config.alwaysAllow = alwaysAllow
+                    }
+                    
+                    mcpServers[serverName] = config
+                }
+            }
+        }
+        
+        return mcpServers
+    } catch {
+        print("Error loading MCP configuration: \(error.localizedDescription)")
+        return nil
     }
 }
 
