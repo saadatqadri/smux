@@ -177,25 +177,106 @@ class WorkspaceManager {
     private func openApplication(_ app: Workspace.ApplicationConfig) {
         print("Opening application: \(app.name)")
         
-        // Create AppleScript to launch the application
-        let script = "tell application \"\(app.name)\" to activate"
-        
-        // Add window positioning if available
-        if let windowPositions = app.windowPositions, !windowPositions.isEmpty {
-            // TODO: Implement window positioning with AppleScript
+        // Special handling for Safari with profile
+        if app.name.lowercased() == "safari" && app.safariProfile != nil {
+            openSafariWithProfile(app.safariProfile!)
+            return
         }
         
-        // Execute the script
+        let process = Process()
+        process.launchPath = "/usr/bin/open"
+        
+        if app.bundleIdentifier.isEmpty {
+            // Open by application name
+            process.arguments = ["-a", app.name]
+        } else {
+            // Open by bundle identifier
+            process.arguments = ["-b", app.bundleIdentifier]
+        }
+        
+        do {
+            try process.run()
+        } catch {
+            print("Error opening application \(app.name): \(error.localizedDescription)")
+        }
+    }
+    
+    /// Open Safari with a specific profile
+    /// - Parameter profileName: Name of the Safari profile to use
+    private func openSafariWithProfile(_ profileName: String) {
+        print("Opening Safari with profile: \(profileName)")
+        
+        // First, try the AppleScript approach to open Safari with a specific profile
+        let script = """
+        tell application "Safari"
+            activate
+            delay 1 -- Wait for Safari to activate
+            tell application "System Events"
+                tell process "Safari"
+                    try
+                        -- Try the direct menu approach first (2 or fewer profiles)
+                        click menu item "New \(profileName) Window" of menu 1 of menu bar item "File" of menu bar 1
+                    on error
+                        -- Try the submenu approach (more than 2 profiles)
+                        try
+                            -- Open the "New Window" submenu
+                            click menu item "New Window" of menu 1 of menu bar item "File" of menu bar 1
+                            delay 0.5 -- Allow time for the submenu to open
+                            -- Click the specific profile window item
+                            click menu item "New \(profileName) Window" of menu 1 of menu item "New Window" of menu 1 of menu bar item "File" of menu bar 1
+                        on error
+                            -- If both approaches fail, just open a regular Safari window
+                            click menu item "New Window" of menu 1 of menu bar item "File" of menu bar 1
+                            display notification "Could not find Safari profile: \(profileName)" with title "SMUX"
+                        end try
+                    end try
+                end tell
+            end tell
+        end tell
+        """
+        
         let process = Process()
         process.launchPath = "/usr/bin/osascript"
         process.arguments = ["-e", script]
         
         do {
             try process.run()
+            process.waitUntilExit()
+            
+            // Check if AppleScript execution was successful
+            if process.terminationStatus != 0 {
+                // If it failed due to permissions, inform the user and fall back to regular Safari
+                if process.terminationReason == .uncaughtSignal {
+                    print("\nPermission error: SMUX needs Accessibility permissions to control Safari.")
+                    print("Please go to System Preferences > Security & Privacy > Privacy > Accessibility")
+                    print("and add Terminal or your IDE to the list of allowed apps.\n")
+                }
+                
+                // Fall back to just opening Safari without profile selection
+                fallbackToRegularSafari()
+            } else {
+                print("Safari has been opened with profile: \(profileName)")
+            }
         } catch {
-            print("Error launching \(app.name): \(error.localizedDescription)")
+            print("Error opening Safari with profile \(profileName): \(error.localizedDescription)")
+            fallbackToRegularSafari()
         }
     }
+    
+    /// Fallback method to open Safari without profile selection
+    private func fallbackToRegularSafari() {
+        let fallbackProcess = Process()
+        fallbackProcess.launchPath = "/usr/bin/open"
+        fallbackProcess.arguments = ["-a", "Safari"]
+        
+        do {
+            try fallbackProcess.run()
+            print("Opened Safari without profile selection")
+        } catch {
+            print("Error opening Safari: \(error.localizedDescription)")
+        }
+    }
+    
     
     /// Open browser URLs
     /// - Parameter urls: Array of URLs to open
